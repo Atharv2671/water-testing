@@ -1,304 +1,96 @@
--- =============================================================================
--- TAUMATA AROWAI - WATER SERVICES AUTHORITY OF NEW ZEALAND
--- Spatial Relational Database Schema for Drinking Water Supplies & GIS Portal
--- Engine: PostgreSQL 14+ with PostGIS 3.2+
--- File: database/schema.sql
--- =============================================================================
+-- Generated from full_water_zones.csv
+-- Taumata Arowai / Auckland water supply zones seed data
+-- Review before running against production. This script inserts scheme and zone records.
+-- The CSV has 80 rows and 45 distinct supply IDs.
+-- Six rows have missing coordinates; the schema's NOT NULL constraints are relaxed below
+-- so those records can be imported without inventing coordinates.
 
--- -----------------------------------------------------------------------------
--- 1. EXTENSIONS & DOMAIN CONFIGURATION
--- -----------------------------------------------------------------------------
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "postgis";
+BEGIN;
 
--- -----------------------------------------------------------------------------
--- 2. ENUMS
--- -----------------------------------------------------------------------------
-DO $$ BEGIN
-    CREATE TYPE user_role_type AS ENUM ('citizen', 'official', 'admin');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
+-- Allow source rows with unavailable coordinates to be represented honestly as NULL.
+ALTER TABLE water_supply_zones ALTER COLUMN supply_latitude DROP NOT NULL;
+ALTER TABLE water_supply_zones ALTER COLUMN supply_longitude DROP NOT NULL;
 
-DO $$ BEGIN
-    CREATE TYPE urban_rural_type AS ENUM ('Urban', 'Rural');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
+-- Create one scheme per distinct Supply ID. Existing records are updated idempotently.
+INSERT INTO water_supply_schemes (supply_id, supply_name, supplier_name, region)
+VALUES
+    ('WAH002', 'Waharau Regional Park', 'Watercare Services Limited', 'Auckland'),
+    ('PAP001', 'Papakura', 'Watercare Services Limited', 'Auckland'),
+    ('WAI222', 'Waitawa Regional Park', 'Watercare Services Limited', 'Auckland'),
+    ('BUR004', 'Burnside Road', 'Watercare Services Limited', 'Auckland'),
+    ('MUR008', 'Muriwai Regional Park', 'Watercare Services Limited', 'Auckland'),
+    ('TAW001', 'Tawharanui Regional Park', 'Watercare Services Limited', 'Auckland'),
+    ('KIN002', 'Kingseat Community', 'Watercare Services Limited', 'Auckland'),
+    ('MAH003', 'Mahurangi Regional Park', 'Watercare Services Limited', 'Auckland'),
+    ('BOM003', 'Bombay', 'Watercare Services Limited', 'Auckland'),
+    ('HUI006', 'Huia Village', 'Watercare Services Limited', 'Auckland'),
+    ('HEL005', 'Helensville/Parakai', 'Watercare Services Limited', 'Auckland'),
+    ('AUC003', 'Auckland', 'Watercare Services Limited', 'Auckland'),
+    ('SNE002', 'Snells/Algies', 'Watercare Services Limited', 'Auckland'),
+    ('MUR011', 'Muriwai', 'Watercare Services Limited', 'Auckland'),
+    ('WAI214', 'Waiuku', 'Watercare Services Limited', 'Auckland'),
+    ('KEN006', 'Kennedy Point Bore', 'Watercare Services Limited', 'Auckland'),
+    ('WAR006', 'Warkworth', 'Watercare Services Limited', 'Auckland'),
+    ('WEL004', 'Wellsford/Te Hana', 'Watercare Services Limited', 'Auckland'),
+    ('BEA300', 'Beachlands Networks', 'Watercare Services Limited', 'Auckland'),
+    ('OMA015', 'Omana Regional Park', 'Watercare Services Limited', 'Auckland'),
+    ('KAI051', 'Kaipara Air Weapons Range', 'Watercare Services Limited', 'Auckland'),
+    ('PIN003', 'Pine Harbour', 'Watercare Services Limited', 'Auckland'),
+    ('BLA013', 'Blackwood Park Services', 'Watercare Services Limited', 'Auckland'),
+    ('ONE005', 'Accommodation at 3-7 Fourth Avenue and 27 The Strand', 'Watercare Services Limited', 'Auckland'),
+    ('MAR007', 'Martins Bay Holiday Camp', 'Watercare Services Limited', 'Auckland'),
+    ('NEW008', 'New Zealand Steel Potable Water Supply', 'Watercare Services Limited', 'Auckland'),
+    ('BOM002', 'Bombay Motorway Services', 'Watercare Services Limited', 'Auckland'),
+    ('KEN005', 'Kensington Park', 'Watercare Services Limited', 'Auckland'),
+    ('SCA002', 'Scandrett Regional Park', 'Watercare Services Limited', 'Auckland'),
+    ('SUN002', 'Sunset Heights', 'Watercare Services Limited', 'Auckland'),
+    ('SHA002', 'Shakespear Regional Park', 'Watercare Services Limited', 'Auckland'),
+    ('DEF001', 'Devonport Naval Base', 'Watercare Services Limited', 'Auckland'),
+    ('VIL001', 'Village Fields Subdivision', 'Watercare Services Limited', 'Auckland'),
+    ('WHA018', 'Whangateau Camping Ground', 'Watercare Services Limited', 'Auckland'),
+    ('MIL008', 'Mill Bay', 'Watercare Services Limited', 'Auckland'),
+    ('PAK017', 'Pakiri Beach Holiday Park', 'Watercare Services Limited', 'Auckland'),
+    ('AWH300', 'Awhitu Regional Park', 'Watercare Services Limited', 'Auckland'),
+    ('PIH300', 'Piha Domain Campground', 'Watercare Services Limited', 'Auckland'),
+    ('SIN300', 'Sinclair Park', 'Watercare Services Limited', 'Auckland'),
+    ('MOT021', 'Home Bay, Motutapu Island Campsite', 'Watercare Services Limited', 'Auckland'),
+    ('WAI197', 'Glenbrook Irrigation Company Limited', 'Watercare Services Limited', 'Auckland'),
+    ('TAP007', 'Tapapakanga Regional Park', 'Watercare Services Limited', 'Auckland'),
+    ('TEA025', 'Te Arai Links', 'Watercare Services Limited', 'Auckland'),
+    ('KAR024', 'Karaka Village', 'Watercare Services Limited', 'Auckland'),
+    ('HAR005', 'Haranui Whanau Water Supply Incorporated', 'Watercare Services Limited', 'Auckland')
+ON CONFLICT (supply_id) DO UPDATE SET
+    supply_name = EXCLUDED.supply_name,
+    region = EXCLUDED.region,
+    updated_at = NOW();
 
-DO $$ BEGIN
-    CREATE TYPE compliance_status_type AS ENUM (
-        'Compliant',
-        'Provisionally Compliant',
-        'Exempt',
-        'Non-Compliant',
-        'Under Review'
-    );
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
-DO $$ BEGIN
-    CREATE TYPE buffer_distance_tier AS ENUM ('50m', '100m', '200m', '500m', '1500m');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
-DO $$ BEGIN
-    CREATE TYPE asset_category_type AS ENUM (
-        'raw_dam',
-        'treatment_plant',
-        'service_reservoir',
-        'trunk_main',
-        'reticulation_main',
-        'service_pipe',
-        'isolation_valve',
-        'fire_hydrant'
-    );
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
-DO $$ BEGIN
-    CREATE TYPE dataset_status_type AS ENUM (
-        'uploaded',
-        'validated',
-        'staged',
-        'published',
-        'archived',
-        'failed_validation'
-    );
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- -----------------------------------------------------------------------------
--- 3. USER MANAGEMENT & ROLE-BASED ACCESS CONTROL (RBAC)
--- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS app_users (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    full_name VARCHAR(150) NOT NULL,
-    role user_role_type NOT NULL DEFAULT 'citizen',
-    job_title VARCHAR(150),
-    organization VARCHAR(200) NOT NULL DEFAULT 'Public',
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_login_at TIMESTAMPTZ
-);
-
-CREATE INDEX IF NOT EXISTS idx_users_email ON app_users(email);
-CREATE INDEX IF NOT EXISTS idx_users_role ON app_users(role);
-
--- Active Sessions for JWT / Bearer token validation
-CREATE TABLE IF NOT EXISTS user_sessions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
-    token_hash VARCHAR(255) NOT NULL,
-    ip_address INET,
-    user_agent TEXT,
-    expires_at TIMESTAMPTZ NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON user_sessions(user_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON user_sessions(expires_at);
-
--- Audit Logs for Governance & Data Provenance
-CREATE TABLE IF NOT EXISTS audit_logs (
-    id BIGSERIAL PRIMARY KEY,
-    user_id UUID REFERENCES app_users(id) ON DELETE SET NULL,
-    action_type VARCHAR(100) NOT NULL,
-    resource_type VARCHAR(100) NOT NULL,
-    resource_id VARCHAR(255),
-    details JSONB,
-    ip_address INET,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_audit_action_type ON audit_logs(action_type);
-CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_logs(created_at);
-
--- -----------------------------------------------------------------------------
--- 4. AUTHORITATIVE DATA SOURCES & UPLOADED DATASETS
--- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS data_sources (
-    id VARCHAR(50) PRIMARY KEY, -- e.g. 'TAUMATA_AROWAI', 'WATERCARE_OPEN_DATA', 'LINZ_LDS'
-    name VARCHAR(200) NOT NULL,
-    custodian VARCHAR(200) NOT NULL,
-    license VARCHAR(100) NOT NULL DEFAULT 'Crown Copyright / Creative Commons Attribution 4.0 NZ',
-    homepage_url VARCHAR(500),
-    crs_declared VARCHAR(50) NOT NULL DEFAULT 'EPSG:2193 / EPSG:4326',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS uploaded_datasets (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    source_id VARCHAR(50) REFERENCES data_sources(id),
-    uploaded_by UUID REFERENCES app_users(id) ON DELETE SET NULL,
-    file_name VARCHAR(255) NOT NULL,
-    file_format VARCHAR(50) NOT NULL, -- 'geojson', 'csv', 'gdb_export', 'xlsx'
-    sha256_checksum CHAR(64) NOT NULL,
-    file_size_bytes BIGINT NOT NULL,
-    target_layer VARCHAR(100) NOT NULL, -- 'AklDizzy', 'zone_list', 'buffers'
-    status dataset_status_type NOT NULL DEFAULT 'uploaded',
-    feature_count INT DEFAULT 0,
-    validation_report JSONB,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    published_at TIMESTAMPTZ
-);
-
-CREATE INDEX IF NOT EXISTS idx_uploaded_status ON uploaded_datasets(status);
-
--- -----------------------------------------------------------------------------
--- 5. DRINKING WATER SCHEMES & SUPPLY ZONES
--- Matches: Auckland_zone_list.xlsx ('zone list' sheet: ~80 rows, 45 schemes)
--- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS water_supply_schemes (
-    supply_id VARCHAR(50) PRIMARY KEY, -- e.g. 'AKL-SUP-01'
-    supply_name VARCHAR(200) NOT NULL, -- e.g. 'Auckland Metro Supply Scheme'
-    supplier_name VARCHAR(200) NOT NULL DEFAULT 'Watercare Services Limited',
-    region VARCHAR(100) NOT NULL DEFAULT 'Auckland Region',
-    compliance_status compliance_status_type NOT NULL DEFAULT 'Compliant',
-    source_water_type VARCHAR(100) NOT NULL DEFAULT 'Surface Water Dams & River Intake',
-    registered_population INT NOT NULL DEFAULT 0,
-    primary_treatment_plant VARCHAR(200),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Water Supply Zones (Spatial Boundary from AklDizzy / default.gdb)
-CREATE TABLE IF NOT EXISTS water_supply_zones (
-    zone_id VARCHAR(50) PRIMARY KEY, -- e.g. 'AKL-SZ-14' (joins to AklDizzy.zone)
-    zone_name VARCHAR(200) NOT NULL, -- e.g. 'Titirangi & Kelston'
-    supply_id VARCHAR(50) NOT NULL REFERENCES water_supply_schemes(supply_id) ON DELETE RESTRICT,
-    urban_rural urban_rural_type NOT NULL DEFAULT 'Urban',
-    zone_population INT NOT NULL DEFAULT 0,
-    supply_latitude NUMERIC(10, 6) NOT NULL,
-    supply_longitude NUMERIC(10, 6) NOT NULL,
-    dataset_version_id UUID REFERENCES uploaded_datasets(id) ON DELETE SET NULL,
-    
-    -- Geographic CRS: EPSG:4326 (WGS84 Lat/Lng for web tiles and GeoJSON)
-    geom_wgs84 GEOMETRY(MultiPolygon, 4326),
-    
-    -- Projected Local CRS: EPSG:2193 (NZTM2000 for millimeter-accurate meters & buffers)
-    geom_nztm GEOMETRY(MultiPolygon, 2193),
-    
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Spatial GiST Indexes for Millisecond Spatial Joins
-CREATE INDEX IF NOT EXISTS idx_zones_geom_wgs84 ON water_supply_zones USING GIST (geom_wgs84);
-CREATE INDEX IF NOT EXISTS idx_zones_geom_nztm ON water_supply_zones USING GIST (geom_nztm);
-CREATE INDEX IF NOT EXISTS idx_zones_supply_id ON water_supply_zones(supply_id);
-
--- Zone Demographics (Matches AklDizzy attributes: pop_regist, deprivation indices, Maori pop)
-CREATE TABLE IF NOT EXISTS zone_demographics (
-    zone_id VARCHAR(50) PRIMARY KEY REFERENCES water_supply_zones(zone_id) ON DELETE CASCADE,
-    pop_registered INT NOT NULL DEFAULT 0,
-    pop_low_deprivation INT NOT NULL DEFAULT 0,
-    pop_moderate_deprivation INT NOT NULL DEFAULT 0,
-    pop_high_deprivation INT NOT NULL DEFAULT 0,
-    pop_maori INT NOT NULL DEFAULT 0,
-    census_source_year INT NOT NULL DEFAULT 2023,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Concentric Distance Buffers around Supply Perimeter
--- Matches: AklDizzy_Buffers50m, 100m, 200m, 500m, 1500m
-CREATE TABLE IF NOT EXISTS supply_zone_buffers (
-    id BIGSERIAL PRIMARY KEY,
-    zone_id VARCHAR(50) NOT NULL REFERENCES water_supply_zones(zone_id) ON DELETE CASCADE,
-    distance_tier buffer_distance_tier NOT NULL,
-    buffer_distance_meters INT NOT NULL,
-    geom_wgs84 GEOMETRY(MultiPolygon, 4326) NOT NULL,
-    geom_nztm GEOMETRY(MultiPolygon, 2193) NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_buffers_geom_wgs84 ON supply_zone_buffers USING GIST (geom_wgs84);
-CREATE INDEX IF NOT EXISTS idx_buffers_geom_nztm ON supply_zone_buffers USING GIST (geom_nztm);
-CREATE INDEX IF NOT EXISTS idx_buffers_zone_tier ON supply_zone_buffers(zone_id, distance_tier);
-
--- -----------------------------------------------------------------------------
--- 6. PHYSICAL NETWORK ASSETS (DAMS, WTPS, RESERVOIRS, MAINS, VALVES, HYDRANTS)
--- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS water_network_assets (
-    compkey BIGINT PRIMARY KEY, -- Watercare Computer Key (unique asset ID)
-    asset_category asset_category_type NOT NULL,
-    asset_name VARCHAR(255) NOT NULL,
-    operational_status VARCHAR(50) NOT NULL DEFAULT 'Operational - in use',
-    nominal_diameter_mm INT,
-    material VARCHAR(100), -- 'Ductile Iron', 'Polyethylene', 'Cast Iron', 'Concrete'
-    pressure_class VARCHAR(50), -- 'PN12', 'PN16', 'Class C'
-    installation_year INT,
-    invert_depth_m NUMERIC(5, 2),
-    cctv_condition_score INT CHECK (cctv_condition_score BETWEEN 1 AND 5),
-    line_length_m NUMERIC(8, 2),
-    storage_capacity_ml NUMERIC(10, 2), -- For dams & reservoirs
-    treatment_technology VARCHAR(200),  -- For WTPs (e.g. DAF + Dual Media Filtration)
-    parent_zone_id VARCHAR(50) REFERENCES water_supply_zones(zone_id) ON DELETE SET NULL,
-    
-    -- Geometry: Point or LineString in WGS84 & NZTM2000
-    geom_wgs84 GEOMETRY(Geometry, 4326),
-    geom_nztm GEOMETRY(Geometry, 2193),
-    
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_assets_geom_wgs84 ON water_network_assets USING GIST (geom_wgs84);
-CREATE INDEX IF NOT EXISTS idx_assets_category ON water_network_assets(asset_category);
-CREATE INDEX IF NOT EXISTS idx_assets_parent_zone ON water_network_assets(parent_zone_id);
-
--- -----------------------------------------------------------------------------
--- 7. SPATIAL QUERY LOGS & PROPERTY EVIDENCE MATCHING
--- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS spatial_property_queries (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES app_users(id) ON DELETE SET NULL,
-    queried_address TEXT NOT NULL,
-    query_point_wgs84 GEOMETRY(Point, 4326) NOT NULL,
-    matched_zone_id VARCHAR(50) REFERENCES water_supply_zones(zone_id) ON DELETE SET NULL,
-    matched_pipe_compkey BIGINT REFERENCES water_network_assets(compkey) ON DELETE SET NULL,
-    distance_to_main_meters NUMERIC(6, 2),
-    buffer_tier_detected VARCHAR(50),
-    response_time_ms INT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_queries_point ON spatial_property_queries USING GIST (query_point_wgs84);
-CREATE INDEX IF NOT EXISTS idx_queries_created_at ON spatial_property_queries(created_at);
-
--- -----------------------------------------------------------------------------
--- 8. AUTOMATED TIMESTAMP TRIGGER
--- -----------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION update_timestamp_column() RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
-
-DROP TRIGGER IF EXISTS trg_app_users_updated ON app_users;
-CREATE TRIGGER trg_app_users_updated
-    BEFORE UPDATE ON app_users
-    FOR EACH ROW EXECUTE FUNCTION update_timestamp_column();
-
-DROP TRIGGER IF EXISTS trg_supply_schemes_updated ON water_supply_schemes;
-CREATE TRIGGER trg_supply_schemes_updated
-    BEFORE UPDATE ON water_supply_schemes
-    FOR EACH ROW EXECUTE FUNCTION update_timestamp_column();
-
-DROP TRIGGER IF EXISTS trg_supply_zones_updated ON water_supply_zones;
-CREATE TRIGGER trg_supply_zones_updated
-    BEFORE UPDATE ON water_supply_zones
-    FOR EACH ROW EXECUTE FUNCTION update_timestamp_column();
-
-DROP TRIGGER IF EXISTS trg_network_assets_updated ON water_network_assets;
-CREATE TRIGGER trg_network_assets_updated
-    BEFORE UPDATE ON water_network_assets
-    FOR EACH ROW EXECUTE FUNCTION update_timestamp_column();
+-- Import each CSV row as a water supply zone.
+-- Source categories are mapped to the schema enum: urban area -> Urban; rural categories -> Rural.
+-- Unknown source categories use the schema's default (Urban); review these classifications if needed.
+INSERT INTO water_supply_zones
+    (zone_id, zone_name, supply_id, urban_rural, zone_population, supply_latitude, supply_longitude)
+VALUES
+    ('WAH002A1', 'Waharau Regional Park', 'WAH002', 'Urban'::urban_rural_type, 400, -37.041259765625, 175.293350219727),
+    ('PAP001PC', 'Papakura City', 'PAP001', 'Urban'::urban_rural_type, 44194, NULL, NULL),
+    ('PAP001RH', 'Red Hill', 'PAP001', 'Urban'::urban_rural_type, 4115, NULL, NULL),
+    ('PAP001TA', 'Takanini', 'PAP001', 'Urban'::urban_rural_type, 23814, NULL, NULL),
+    ('WAI222A1', 'Waitawa Regional Park', 'WAI222', 'Urban'::urban_rural_type, 400, -36.9398956298828, 175.145919799805),
+    ('BUR004BU', 'Burnside Road', 'BUR004', 'Urban'::urban_rural_type, 352, NULL, NULL),
+    ('MUR008A1', 'Muriwai Regional Park', 'MUR008', 'Urban'::urban_rural_type, 400, -36.8230323791504, 174.440551757813),
+    ('TAW001A1', 'Tawharanui Regional Park', 'TAW001', 'Urban'::urban_rural_type, 400, -36.3741645812988, 174.820983886719),
+    ('KIN002KH', 'Kingseat Community', 'KIN002', 'Rural'::urban_rural_type, 400, -37.1406517028809, 174.799530029297),
+    ('MAH003A1', 'Mahurangi Regional Park', 'MAH003', 'Urban'::urban_rural_type, 400, -36.5110206604004, 174.72184753418),
+    ('BOM003BO', 'Bombay', 'BOM003', 'Urban'::urban_rural_type, 609, -37.1814041137695, 174.994338989258),
+    ('HUI006HV', 'Huia Village', 'HUI006', 'Urban'::urban_rural_type, 597, -36.9911003112793, 174.566436767578),
+    ('HEL005HP', 'Helensville/Parakai', 'HEL005', 'Urban'::urban_rural_type, 4579, -36.6817626953125, 174.455307006836),
+    ('AUC003GN', 'Glen Eden/New Lynn', 'AUC003', 'Urban'::urban_rural_type, 61464, -37.19257, 174.90111),
+    ('AUC003HW', 'HBC/Waiwera', 'AUC003', 'Urban'::urban_rural_type, 35272, -37.19257, 174.90111),
+    ('AUC003HT', 'Hilltop', 'AUC003', 'Urban'::urban_rural_type, 1255, -37.19257, 174.90111),
+    ('AUC003HH', 'High Head', 'AUC003', 'Urban'::urban_rural_type, 7189, -37.19257, 174.90111),
+    ('AUC003AZ', 'Anzac', 'AUC003', 'Urban'::urban_rural_type, 4562, -37.19257, 174.90111),
+    ('AUC003AU', 'Auckland', 'AUC003', 'Urban'::urban_rural_type, 280912, -37.19257, 174.90111),
+    ('AUC003AA', 'Auckland Airport', 'AUC003', 'Urban'::urban_rural_type, 984, -37.19257, 174.90111),
+    ('AUC003BU', 'Buckland', 'AUC003', 'Urban'::urban_rural_type, 997, -37.19257, 174.90111),
+    ('AUC003HO', 'Howick/Pakuranga', 'AUC003', 'Urban'::urban_rural_type, 99873, -37.19257, 174.90111),
+    ('AUC003CB', 'Central Business Dist.Auckland', 'AUC003', 'Urban'::urban_rural_type, 19309, -37.19257, 174.90111),
+    ('AUC003CL', 'Clarks/Waiau Beach', 'AUC003', 'Urban'::urban_rural_type, 1434, -37.19257, 174.90111),
