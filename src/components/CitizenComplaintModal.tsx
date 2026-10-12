@@ -20,6 +20,7 @@ import {
 import { AuthUser, WaterIncidentComplaint, IncidentCategory, IncidentSeverity } from '../types/gis';
 import { TaumataArowaiLogo } from './TaumataArowaiLogo';
 import { AUCKLAND_ZONE_SCHEMES } from '../utils/waterLineageEngine';
+import { submitIncidentApi } from '../services/apiClient';
 
 interface CitizenComplaintModalProps {
   isOpen: boolean;
@@ -134,10 +135,10 @@ export const CitizenComplaintModal: React.FC<CitizenComplaintModalProps> = ({
     }
 
     const matchedZone = AUCKLAND_ZONE_SCHEMES.find(z => z.zoneId === supplyZoneId);
-    const refCode = `NZ-DW-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    let finalRefCode = `NZ-DW-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const newComplaint: WaterIncidentComplaint = {
-      id: refCode,
+      id: finalRefCode,
       category,
       categoryLabel: categories.find(c => c.id === category)?.label || 'General Incident',
       severity,
@@ -157,8 +158,19 @@ export const CitizenComplaintModal: React.FC<CitizenComplaintModalProps> = ({
       createdAt: new Date().toISOString(),
     };
 
+    // Asynchronously submit to FastAPI backend if available
+    submitIncidentApi(newComplaint).then((apiRes) => {
+      if (apiRes && apiRes.id) {
+        finalRefCode = apiRes.id;
+        newComplaint.id = apiRes.id;
+        setSubmittedReference(apiRes.id);
+      }
+    }).catch(() => {
+      // Offline fallback already handled
+    });
+
     onSubmitComplaint(newComplaint);
-    setSubmittedReference(refCode);
+    setSubmittedReference(finalRefCode);
     setValidationError(null);
   };
 

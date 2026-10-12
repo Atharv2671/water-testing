@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Header } from './components/Header';
 import { GisMap } from './components/GisMap';
 import { InspectionDrawer } from './components/InspectionDrawer';
@@ -19,6 +19,7 @@ import {
 } from './types/gis';
 import { VERIFIED_PIPES } from './data/nzData';
 import { AucklandZoneScheme } from './utils/waterLineageEngine';
+import { getCurrentUserApi, fetchIncidentsApi, clearAuthToken } from './services/apiClient';
 
 export default function App() {
   // 1. Authentication State (Admin, Authorized Official, Citizen)
@@ -63,6 +64,26 @@ export default function App() {
 
   // 7. Custom Ingested GeoJSON Data
   const [customGeoJsonData, setCustomGeoJsonData] = useState<any | null>(null);
+
+  // Restore authenticated session and live incidents from backend if available
+  useEffect(() => {
+    getCurrentUserApi().then((user) => {
+      if (user) {
+        setCurrentUser(user);
+      }
+    });
+
+    fetchIncidentsApi().then((incidents) => {
+      if (incidents && incidents.length > 0) {
+        setComplaintsList(incidents);
+      }
+    });
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    clearAuthToken();
+    setCurrentUser(null);
+  }, []);
 
   // Handlers
   const handleToggleLayer = (layerKey: keyof LayerVisibility) => {
@@ -140,7 +161,7 @@ export default function App() {
       <Header
         currentUser={currentUser}
         onOpenLogin={() => setIsLoginModalOpen(true)}
-        onLogout={() => setCurrentUser(null)}
+        onLogout={handleLogout}
         onSearchSelectParcel={handleSearchSelectParcel}
         onSearchSelectZone={handleSearchSelectZone}
         onLocateMe={handleLocateMe}

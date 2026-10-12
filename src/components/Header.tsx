@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Search, 
   MapPin, 
@@ -10,12 +10,14 @@ import {
   ShieldCheck,
   Building2,
   X,
-  AlertTriangle
+  AlertTriangle,
+  Server
 } from 'lucide-react';
 import { AuthUser, ParcelFeature } from '../types/gis';
 import { VERIFIED_PARCELS } from '../data/nzData';
 import { AUCKLAND_ZONE_SCHEMES, AucklandZoneScheme } from '../utils/waterLineageEngine';
 import { TaumataArowaiLogo } from './TaumataArowaiLogo';
+import { searchAddressesApi, checkBackendHealth } from '../services/apiClient';
 
 interface HeaderProps {
   currentUser: AuthUser | null;
@@ -28,6 +30,7 @@ interface HeaderProps {
   onOpenComplaintModal: () => void;
   onOpenDataRequestModal: () => void;
   onOpenDocumentation: () => void;
+  onProfileDashboardOpen?: () => void;
   onOpenProfileDashboard: () => void;
 }
 
@@ -46,9 +49,36 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
+  const [backendOnline, setBackendOnline] = useState<boolean>(false);
+  const [apiParcels, setApiParcels] = useState<ParcelFeature[]>([]);
 
-  // Filter verified parcels
-  const filteredParcels = searchQuery.trim() === '' 
+  // Periodic Backend Health Check
+  useEffect(() => {
+    checkBackendHealth().then(res => setBackendOnline(res.online));
+    const interval = setInterval(() => {
+      checkBackendHealth().then(res => setBackendOnline(res.online));
+    }, 12000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Debounced Live Backend Address Search
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!q) {
+      setApiParcels([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      const results = await searchAddressesApi(q, 8);
+      if (results && results.length > 0) {
+        setApiParcels(results);
+      }
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Fallback local parcel filter
+  const localFilteredParcels = searchQuery.trim() === '' 
     ? [] 
     : VERIFIED_PARCELS.filter(p => 
         p.fullAddress.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -56,6 +86,9 @@ export const Header: React.FC<HeaderProps> = ({
         p.streetNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.lotNumber.toLowerCase().includes(searchQuery.toLowerCase())
       );
+
+  // Active parcels: use backend API results if present, otherwise local
+  const filteredParcels = apiParcels.length > 0 ? apiParcels : localFilteredParcels;
 
   // Filter official Auckland Supply Zones
   const matchingZones = searchQuery.trim() === ''
@@ -204,6 +237,17 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Right: Functional Navigation & Authentication */}
         <div className="flex items-center gap-2 shrink-0">
           
+          {/* Backend Connection Status Badge */}
+          <div 
+            title={backendOnline ? "Backend API connected (FastAPI on Port 8000)" : "Backend offline — using standalone local datasets"}
+            className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium border border-white/15 bg-white/5 transition-colors cursor-default"
+          >
+            <span className={`w-2 h-2 rounded-full ${backendOnline ? 'bg-emerald-400 animate-pulse shadow-[0_0_8px_#34d399]' : 'bg-slate-400'}`} />
+            <span className="text-slate-300">
+              {backendOnline ? 'API Connected' : 'Standalone Mode'}
+            </span>
+          </div>
+
           {/* Citizen Incident & Contamination Report Button */}
           <button
             type="button"

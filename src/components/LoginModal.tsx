@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { AuthUser, UserRole } from '../types/gis';
 import { TaumataArowaiLogo } from './TaumataArowaiLogo';
+import { loginApi } from '../services/apiClient';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -62,6 +63,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [password, setPassword] = useState('OfficialWater#2026');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
 
@@ -72,18 +74,35 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     setError(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim() || !password.trim()) {
       setError('Please provide both an email/username and password.');
       return;
     }
 
-    // Match with verified account records
+    setIsSubmitting(true);
+    setError(null);
+
+    // 1. Attempt live backend authentication
+    try {
+      const apiResult = await loginApi(email, password);
+      if (apiResult) {
+        onLogin(apiResult.user);
+        setIsSubmitting(false);
+        onClose();
+        return;
+      }
+    } catch {
+      // Offline fallback
+    }
+
+    // 2. Offline / local fallback against verified accounts
     const matched = Object.values(DEV_TEST_ACCOUNTS).find(
       (acc) => acc.email.toLowerCase() === email.trim().toLowerCase()
     );
 
+    setIsSubmitting(false);
     if (matched) {
       onLogin({
         ...matched,
