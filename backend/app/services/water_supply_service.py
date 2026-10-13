@@ -135,6 +135,9 @@ class WaterSupplyService:
             )
             db.add(audit_entry)
             db.commit()
+        except Exception:
+            db.rollback()
+
         # Step 3.5: Dijkstra Shortest Route Calculation
         dijkstra_route = None
         target_lat = matched_zone_schema.lat if matched_zone_schema else -36.9125

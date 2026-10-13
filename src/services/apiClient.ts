@@ -10,7 +10,8 @@ import {
   AuthUser, 
   WaterIncidentComplaint, 
   UserRole,
-  PathwayResolutionResult 
+  PathwayResolutionResult,
+  AucklandSupplyZone
 } from '../types/gis';
 import { VERIFIED_PARCELS, latLngToNZTM2000 } from '../data/nzData';
 import { AUCKLAND_ZONE_SCHEMES, resolveDrinkingWaterSupplyZone, calculateDistanceKm } from '../utils/waterLineageEngine';
@@ -322,8 +323,8 @@ export async function resolveWaterSupplyApi(req: {
       complianceStatus: 'Rule Compliant (Grade A1)',
       sourceWaterType: 'Surface Water Dams & Native Catchment',
       registeredPopulation: matchedZone.popRegist,
-      primaryTreatmentPlant: matchedZone.treatmentPlant.name,
-      waterQualityGrade: matchedZone.treatmentPlant.waterQualityGrade,
+      primaryTreatmentPlant: matchedZone.treatmentPlant?.name || 'Watercare Regional Treatment Plant',
+      waterQualityGrade: matchedZone.treatmentPlant?.waterQualityGrade || 'Taumata Arowai Rule Compliant (Grade A1)',
     },
     bufferTier: {
       tierName: 'Within 50m (Immediate Reticulation Spine)',
@@ -461,4 +462,109 @@ export async function updateIncidentStatusApi(
     console.warn('[API Client] Incident status update failed:', err);
   }
   return null;
+}
+
+/**
+ * Fetch full Auckland Supply Areas GeoJSON:
+ * Direct high-speed static fetch of authoritative Otago/ArcGIS layer package
+ */
+export async function fetchSupplyZonesGeoJson(): Promise<any> {
+  try {
+    const res = await fetch('/data/auckland_supply_zones.geojson');
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.debug('[API Client] Could not fetch auckland_supply_zones.geojson:', err);
+  }
+  return null;
+}
+
+/**
+ * Fetch concentric risk protection buffers (50m, 100m, 200m, 500m, 1500m) GeoJSON
+ */
+export async function fetchSupplyBuffersGeoJson(): Promise<any> {
+  try {
+    const res = await fetch('/data/akldizzy_buffers_all.geojson');
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.debug('[API Client] Could not fetch akldizzy_buffers_all.geojson:', err);
+  }
+  return null;
+}
+
+/**
+ * Fetch all Auckland Supply Zones with schema typing from /api/zones or GeoJSON fallback
+ */
+export async function fetchSupplyZonesApi(): Promise<AucklandSupplyZone[]> {
+  // 1. Try FastAPI backend /api/zones
+  try {
+    const res = await fetch(`${BASE_URL}/zones?limit=100`, {
+      headers: getAuthHeaders(),
+      signal: AbortSignal.timeout(4000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        return data;
+      }
+    }
+  } catch (err) {
+    console.debug('[API Client] /api/zones unavailable, falling back to GeoJSON:', err);
+  }
+
+  // 2. Fallback to /data/auckland_supply_zones.geojson
+  try {
+    const gj = await fetchSupplyZonesGeoJson();
+    if (gj && Array.isArray(gj.features)) {
+      return gj.features.map((f: any, idx: number) => {
+        const p = f.properties || {};
+        return {
+          zoneId: p.zoneId || `AKL-SZ-${idx + 1 < 10 ? '0' : ''}${idx + 1}`,
+          zoneName: p.zoneName || `${p.zone || 'Auckland'} Supply Zone`,
+          supplyId: p.supplyId || 'SUP-AKL-CENTRAL-01',
+          supplyName: p.supplyName || 'Watercare Municipal Water Supply Scheme',
+          zonePopulation: Math.round(Number(p.pop_regist || 0)),
+          urbanRural: p.urbanRural || 'Urban',
+          lat: Number(p.lat || 0),
+          lng: Number(p.lng || 0),
+          popRegist: Math.round(Number(p.pop_regist || 0)),
+          popLowDe: Math.round(Number(p.pop_low_de || 0)),
+          popModDe: Math.round(Number(p.pop_mod_de || 0)),
+          popHighDe: Math.round(Number(p.pop_high_d || 0)),
+          popMaori: Math.round(Number(p.pop_maori || 0)),
+          shapeLength: Number(p.Shape_Length || 0),
+          shapeArea: Number(p.Shape_Area || 0),
+          complianceStatus: p.complianceStatus || 'Rule Compliant (Grade A1)',
+          supplierName: p.supplierName || 'Watercare Services Limited',
+          dataSource: p.dataSource || 'Taumata Arowai Drinking Water Register & Watercare Services Ltd',
+        } as AucklandSupplyZone;
+      });
+    }
+  } catch (err) {
+    console.debug('[API Client] Error parsing supply zones GeoJSON:', err);
+  }
+
+  return [];
+}
+
+/**
+ * Fetch a specific supply zone by unique ID
+ */
+export async function fetchSupplyZoneByIdApi(zoneId: string): Promise<AucklandSupplyZone | null> {
+  try {
+    const res = await fetch(`${BASE_URL}/zones/${encodeURIComponent(zoneId)}`, {
+      headers: getAuthHeaders(),
+      signal: AbortSignal.timeout(4000),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.debug('[API Client] Lookup /api/zones/:id failed:', err);
+  }
+  const all = await fetchSupplyZonesApi();
+  return all.find(z => z.zoneId === zoneId || z.zoneName.toLowerCase().includes(zoneId.toLowerCase())) || null;
 }

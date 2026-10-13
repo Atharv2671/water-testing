@@ -28,6 +28,7 @@ import {
   AUCKLAND_ZONE_SCHEMES
 } from '../utils/waterLineageEngine';
 import { MAP_PROVIDERS } from '../config/apiConfig';
+import { fetchSupplyZonesGeoJson, fetchSupplyBuffersGeoJson } from '../services/apiClient';
 
 interface GisMapProps {
   accessLevel: AccessLevel;
@@ -93,6 +94,18 @@ export const GisMap: React.FC<GisMapProps> = ({
   });
   const [zoomLevel, setZoomLevel] = useState(NZ_DEFAULT_ZOOM);
   const [waterTileLoadError, setWaterTileLoadError] = useState<string | null>(null);
+  const [supplyZonesGeoJson, setSupplyZonesGeoJson] = useState<any | null>(null);
+  const [supplyBuffersGeoJson, setSupplyBuffersGeoJson] = useState<any | null>(null);
+
+  // Load authoritative Auckland Supply Areas & Risk Buffers GeoJSON from dataset
+  useEffect(() => {
+    fetchSupplyZonesGeoJson().then(data => {
+      if (data) setSupplyZonesGeoJson(data);
+    });
+    fetchSupplyBuffersGeoJson().then(data => {
+      if (data) setSupplyBuffersGeoJson(data);
+    });
+  }, []);
 
   const onSelectFeatureRef = useRef(onSelectFeature);
   onSelectFeatureRef.current = onSelectFeature;
@@ -265,98 +278,205 @@ export const GisMap: React.FC<GisMapProps> = ({
 
     if (!mapInstanceRef.current) return;
 
-    AUCKLAND_ZONE_SCHEMES.forEach((zone) => {
-      // 1. Supply Buffer Corridors
-      if (layerVisibility.supplyBuffers && zone.polygon) {
-        const bufferOuter = L.circle([zone.lat, zone.lng], {
-          radius: zone.radiusKm * 1000,
-          color: '#38bdf8',
-          weight: 1,
-          dashArray: '3, 4',
-          fillColor: '#38bdf8',
-          fillOpacity: 0.04,
-          interactive: false,
+    // 1. Supply Buffer Corridors Layer
+    if (layerVisibility.supplyBuffers) {
+      if (supplyBuffersGeoJson && supplyBuffersGeoJson.features) {
+        const buffersLayer = L.geoJSON(supplyBuffersGeoJson, {
+          style: (feature) => {
+            const dist = feature?.properties?.buffer_distance || '50m';
+            switch (dist) {
+              case '50m':
+                return { color: '#0284c7', weight: 1.5, dashArray: '2, 3', fillColor: '#0284c7', fillOpacity: 0.12, interactive: false };
+              case '100m':
+                return { color: '#0ea5e9', weight: 1.2, dashArray: '3, 4', fillColor: '#0ea5e9', fillOpacity: 0.08, interactive: false };
+              case '200m':
+                return { color: '#38bdf8', weight: 1.0, dashArray: '4, 4', fillColor: '#38bdf8', fillOpacity: 0.06, interactive: false };
+              case '500m':
+                return { color: '#60a5fa', weight: 0.8, dashArray: '5, 5', fillColor: '#60a5fa', fillOpacity: 0.04, interactive: false };
+              case '1500m':
+              default:
+                return { color: '#93c5fd', weight: 0.8, dashArray: '6, 6', fillColor: '#93c5fd', fillOpacity: 0.02, interactive: false };
+            }
+          },
         });
-        buffersGroup.addLayer(bufferOuter);
-      }
-
-      // 2. Official Spatial Supply Zones (AklDizzy)
-      if (layerVisibility.supplyZones && zone.polygon) {
-        const isAssignedZone = pathway?.supplyZone?.zoneId === zone.zoneId;
-        const hasActivePathway = !!pathway?.supplyZone;
-
-        const zonePoly = L.polygon(zone.polygon, {
-          color: isAssignedZone ? '#0284c7' : (hasActivePathway ? '#64748b' : '#071A35'),
-          weight: isAssignedZone ? 3.5 : (hasActivePathway ? 1 : 2),
-          opacity: isAssignedZone ? 1 : (hasActivePathway ? 0.35 : 0.8),
-          fillColor: isAssignedZone ? '#38bdf8' : (hasActivePathway ? '#94a3b8' : '#0284c7'),
-          fillOpacity: isAssignedZone ? 0.28 : (hasActivePathway ? 0.03 : 0.12),
-          dashArray: isAssignedZone ? undefined : '4, 4',
-        });
-
-        if (isAssignedZone) {
-          zonePoly.bringToFront();
-        }
-
-        zonePoly.on('mouseover', () => {
-          if (!isAssignedZone) {
-            zonePoly.setStyle({
-              weight: 2.5,
-              fillOpacity: hasActivePathway ? 0.14 : 0.22,
-              color: '#0284c7',
+        buffersGroup.addLayer(buffersLayer);
+      } else {
+        // Fallback circle buffers
+        AUCKLAND_ZONE_SCHEMES.forEach((zone) => {
+          if (zone.polygon) {
+            const bufferOuter = L.circle([zone.lat, zone.lng], {
+              radius: zone.radiusKm * 1000,
+              color: '#38bdf8',
+              weight: 1,
+              dashArray: '3, 4',
+              fillColor: '#38bdf8',
+              fillOpacity: 0.04,
+              interactive: false,
             });
+            buffersGroup.addLayer(bufferOuter);
           }
         });
+      }
+    }
 
-        zonePoly.on('mouseout', () => {
-          if (!isAssignedZone) {
-            zonePoly.setStyle({
-              weight: hasActivePathway ? 1 : 2,
-              fillOpacity: hasActivePathway ? 0.03 : 0.12,
-              color: hasActivePathway ? '#64748b' : '#071A35',
+    // 2. Official Spatial Supply Zones (AklDizzy) Layer
+    if (layerVisibility.supplyZones) {
+      if (supplyZonesGeoJson && supplyZonesGeoJson.features) {
+        const zonesLayer = L.geoJSON(supplyZonesGeoJson, {
+          style: (feature) => {
+            const isAssignedZone = pathway?.supplyZone?.zoneId === feature?.properties?.zoneId;
+            const hasActivePathway = !!pathway?.supplyZone;
+            return {
+              color: isAssignedZone ? '#0284c7' : (hasActivePathway ? '#64748b' : '#071A35'),
+              weight: isAssignedZone ? 3.5 : (hasActivePathway ? 1 : 2),
+              opacity: isAssignedZone ? 1 : (hasActivePathway ? 0.35 : 0.8),
+              fillColor: isAssignedZone ? '#38bdf8' : (hasActivePathway ? '#94a3b8' : '#0284c7'),
+              fillOpacity: isAssignedZone ? 0.28 : (hasActivePathway ? 0.03 : 0.14),
+              dashArray: isAssignedZone ? undefined : '3, 3',
+            };
+          },
+          onEachFeature: (feature, layer) => {
+            const props = feature.properties;
+            const isAssignedZone = pathway?.supplyZone?.zoneId === props?.zoneId;
+            const hasActivePathway = !!pathway?.supplyZone;
+
+            layer.on({
+              mouseover: () => {
+                if (!isAssignedZone && 'setStyle' in layer) {
+                  (layer as any).setStyle({
+                    weight: 2.5,
+                    fillOpacity: hasActivePathway ? 0.16 : 0.25,
+                    color: '#0284c7',
+                  });
+                }
+              },
+              mouseout: () => {
+                if (!isAssignedZone && 'setStyle' in layer) {
+                  (layer as any).setStyle({
+                    weight: hasActivePathway ? 1 : 2,
+                    fillOpacity: hasActivePathway ? 0.03 : 0.14,
+                    color: hasActivePathway ? '#64748b' : '#071A35',
+                  });
+                }
+              },
+              click: (e: L.LeafletMouseEvent) => {
+                L.DomEvent.stopPropagation(e);
+                onSelectFeature({
+                  type: 'supply_zone',
+                  data: props,
+                });
+
+                const popupHtml = createSupplyZonePopupHtml(props, e.latlng.lat, e.latlng.lng, accessLevel);
+                L.popup({
+                  className: 'watercare-popup',
+                  maxWidth: 360,
+                })
+                  .setLatLng(e.latlng)
+                  .setContent(popupHtml)
+                  .openOn(mapInstanceRef.current!);
+              },
             });
+
+            // Centroid label badge when zoomed in
+            if (zoomLevel >= 12 && props?.lat && props?.lng) {
+              const badgeBg = isAssignedZone ? '#0284c7' : (hasActivePathway ? 'rgba(7, 26, 53, 0.6)' : 'rgba(7, 26, 53, 0.9)');
+              const zoneBadge = L.divIcon({
+                className: 'zone-label-badge',
+                html: `
+                  <div style="background: ${badgeBg}; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 700; white-space: nowrap; border: 1px solid ${isAssignedZone ? '#38bdf8' : '#38bdf8'}; box-shadow: 0 1px 4px rgba(0,0,0,0.3); pointer-events: none; text-align: center;">
+                    <div>${props.zoneName}</div>
+                    <div style="font-size: 9px; color: #7dd3fc; font-weight: 500;">Pop: ${(props.popRegist || 0).toLocaleString()}</div>
+                  </div>
+                `,
+                iconSize: [120, 26],
+                iconAnchor: [60, 13],
+              });
+              const marker = L.marker([props.lat, props.lng], { icon: zoneBadge, interactive: false });
+              supplyGroup.addLayer(marker);
+            }
+          },
+        });
+        supplyGroup.addLayer(zonesLayer);
+      } else {
+        // Fallback scheme loop
+        AUCKLAND_ZONE_SCHEMES.forEach((zone) => {
+          if (zone.polygon) {
+            const isAssignedZone = pathway?.supplyZone?.zoneId === zone.zoneId;
+            const hasActivePathway = !!pathway?.supplyZone;
+
+            const zonePoly = L.polygon(zone.polygon, {
+              color: isAssignedZone ? '#0284c7' : (hasActivePathway ? '#64748b' : '#071A35'),
+              weight: isAssignedZone ? 3.5 : (hasActivePathway ? 1 : 2),
+              opacity: isAssignedZone ? 1 : (hasActivePathway ? 0.35 : 0.8),
+              fillColor: isAssignedZone ? '#38bdf8' : (hasActivePathway ? '#94a3b8' : '#0284c7'),
+              fillOpacity: isAssignedZone ? 0.28 : (hasActivePathway ? 0.03 : 0.12),
+              dashArray: isAssignedZone ? undefined : '4, 4',
+            });
+
+            if (isAssignedZone) {
+              zonePoly.bringToFront();
+            }
+
+            zonePoly.on('mouseover', () => {
+              if (!isAssignedZone) {
+                zonePoly.setStyle({
+                  weight: 2.5,
+                  fillOpacity: hasActivePathway ? 0.14 : 0.22,
+                  color: '#0284c7',
+                });
+              }
+            });
+
+            zonePoly.on('mouseout', () => {
+              if (!isAssignedZone) {
+                zonePoly.setStyle({
+                  weight: hasActivePathway ? 1 : 2,
+                  fillOpacity: hasActivePathway ? 0.03 : 0.12,
+                  color: hasActivePathway ? '#64748b' : '#071A35',
+                });
+              }
+            });
+
+            zonePoly.on('click', (e: L.LeafletMouseEvent) => {
+              L.DomEvent.stopPropagation(e);
+              onSelectFeature({
+                type: 'supply_zone',
+                data: zone,
+              });
+
+              const popupHtml = createSupplyZonePopupHtml(zone, zone.lat, zone.lng, accessLevel);
+              L.popup({
+                className: 'watercare-popup',
+                maxWidth: 350,
+              })
+                .setLatLng(e.latlng)
+                .setContent(popupHtml)
+                .openOn(mapInstanceRef.current!);
+            });
+
+            supplyGroup.addLayer(zonePoly);
+
+            if (zoomLevel >= 12) {
+              const badgeBg = isAssignedZone ? '#0284c7' : (hasActivePathway ? 'rgba(7, 26, 53, 0.6)' : 'rgba(7, 26, 53, 0.9)');
+              const zoneBadge = L.divIcon({
+                className: 'zone-label-badge',
+                html: `
+                  <div style="background: ${badgeBg}; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 700; white-space: nowrap; border: 1px solid ${isAssignedZone ? '#38bdf8' : '#38bdf8'}; box-shadow: 0 1px 4px rgba(0,0,0,0.3); pointer-events: none; text-align: center;">
+                    <div>${zone.zoneName}</div>
+                    <div style="font-size: 9px; color: #7dd3fc; font-weight: 500;">Pop: ${(zone.popRegist ?? 0).toLocaleString()}</div>
+                  </div>
+                `,
+                iconSize: [120, 26],
+                iconAnchor: [60, 13],
+              });
+              const marker = L.marker([zone.lat, zone.lng], { icon: zoneBadge, interactive: false });
+              supplyGroup.addLayer(marker);
+            }
           }
         });
-
-        zonePoly.on('click', (e: L.LeafletMouseEvent) => {
-          L.DomEvent.stopPropagation(e);
-          onSelectFeature({
-            type: 'supply_zone',
-            data: zone,
-          });
-
-          const popupHtml = createSupplyZonePopupHtml(zone, zone.lat, zone.lng, accessLevel);
-          L.popup({
-            className: 'watercare-popup',
-            maxWidth: 350,
-          })
-            .setLatLng(e.latlng)
-            .setContent(popupHtml)
-            .openOn(mapInstanceRef.current!);
-        });
-
-        supplyGroup.addLayer(zonePoly);
-
-        // Zone label badge at centroid
-        if (zoomLevel >= 12) {
-          const badgeBg = isAssignedZone ? '#0284c7' : (hasActivePathway ? 'rgba(7, 26, 53, 0.6)' : 'rgba(7, 26, 53, 0.9)');
-          const zoneBadge = L.divIcon({
-            className: 'zone-label-badge',
-            html: `
-              <div style="background: ${badgeBg}; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 700; white-space: nowrap; border: 1px solid ${isAssignedZone ? '#38bdf8' : '#38bdf8'}; box-shadow: 0 1px 4px rgba(0,0,0,0.3); pointer-events: none; text-align: center;">
-                <div>${zone.zoneName}</div>
-                <div style="font-size: 9px; color: #7dd3fc; font-weight: 500;">Pop: ${zone.popRegist.toLocaleString()}</div>
-              </div>
-            `,
-            iconSize: [120, 26],
-            iconAnchor: [60, 13],
-          });
-          const marker = L.marker([zone.lat, zone.lng], { icon: zoneBadge, interactive: false });
-          supplyGroup.addLayer(marker);
-        }
       }
-    });
-  }, [layerVisibility.supplyZones, layerVisibility.supplyBuffers, zoomLevel, accessLevel, pathway]);
+    }
+  }, [layerVisibility.supplyZones, layerVisibility.supplyBuffers, zoomLevel, accessLevel, pathway, supplyZonesGeoJson, supplyBuffersGeoJson]);
 
   // Render Parcels & Residential Zones
   useEffect(() => {
@@ -842,7 +962,7 @@ export const GisMap: React.FC<GisMapProps> = ({
 
     if (!mapInstanceRef.current) return;
 
-    // 1. If pathway is active, render selected address marker & assignment corridor indicator
+    // 1. If pathway is active, render only the searched location marker (no route lines or path overlays)
     if (pathway) {
       // 1.1 Distinct Selected Address Pin Marker with Pulsing Halo
       const addressPinIcon = L.divIcon({
@@ -864,115 +984,24 @@ export const GisMap: React.FC<GisMapProps> = ({
         zIndexOffset: 1200,
       });
 
-      addressMarker.bindTooltip(
-        `<div style="font-size:11px;font-weight:700;color:#071A35;">${pathway.queriedAddress}</div>` +
-        `<div style="font-size:10px;color:#0284c7;font-weight:600;">Selected Query Address</div>`,
-        {
-          direction: 'top',
-          offset: [0, -18],
-          className: 'watercare-tooltip',
-        }
-      );
-      highlightGroup.addLayer(addressMarker);
-
-      // 1.2 Core Road Network Pathfinding Route to Supply Zone (Walkable / Vehicle Road)
-      if (pathway.dijkstraRoute && pathway.dijkstraRoute.pathCoordinates.length > 1) {
-        // High-contrast road casing (crisp white outline for satellite basemap readability)
-        const roadCasing = L.polyline(pathway.dijkstraRoute.pathCoordinates, {
-          color: '#ffffff',
-          weight: 7.5,
-          opacity: 0.85,
-          lineCap: 'round',
-          lineJoin: 'round',
-          interactive: false,
+      if (selectedFeature?.type === 'parcel') {
+        const popupHtml = createParcelPopupHtml(selectedFeature.data as ParcelFeature, accessLevel);
+        addressMarker.bindPopup(popupHtml, {
+          className: 'watercare-popup',
+          maxWidth: 350,
         });
-        highlightGroup.addLayer(roadCasing);
-
-        // Core road route polyline strictly along vehicle/walkable road centerlines
-        const roadLine = L.polyline(pathway.dijkstraRoute.pathCoordinates, {
-          color: '#0284c7',
-          weight: 4.5,
-          opacity: 0.95,
-          lineCap: 'round',
-          lineJoin: 'round',
-          interactive: true,
-        });
-
-        roadLine.bindTooltip(
-          `<div style="font-size:11px;font-weight:700;color:#071A35;">Road Network Route (Strict Walkable / Vehicle Corridors)</div>` +
-          `<div style="font-size:10px;color:#0369a1;font-weight:700;margin-top:1px;">Distance: ${pathway.dijkstraRoute.totalDistanceMeters.toLocaleString()} m (${pathway.dijkstraRoute.totalDistanceKm} km)</div>` +
-          `<div style="font-size:9px;color:#334155;margin-top:2px;">Corridor: ${pathway.dijkstraRoute.roadNames?.join(' &rarr; ') || 'Paved Street Corridors'}</div>` +
-          `<div style="font-size:9px;color:#0284c7;font-style:italic;margin-top:2px;">A* Road Algorithm &bull; Zero Forest Crossing</div>`,
+      } else {
+        addressMarker.bindTooltip(
+          `<div style="font-size:11px;font-weight:700;color:#071A35;">${pathway.queriedAddress}</div>` +
+          `<div style="font-size:10px;color:#0284c7;font-weight:600;">Selected Query Address</div>`,
           {
-            sticky: true,
+            direction: 'top',
+            offset: [0, -18],
             className: 'watercare-tooltip',
           }
         );
-        highlightGroup.addLayer(roadLine);
-
-        // Street Turn & Intersection Waypoint Markers
-        for (let i = 1; i < pathway.dijkstraRoute.pathCoordinates.length - 1; i++) {
-          const pt = pathway.dijkstraRoute.pathCoordinates[i];
-          const seg = pathway.dijkstraRoute.segments[i] || pathway.dijkstraRoute.segments[i - 1];
-          const junctionDot = L.circleMarker(pt, {
-            radius: 4,
-            color: '#0369a1',
-            weight: 2,
-            fillColor: '#ffffff',
-            fillOpacity: 1,
-            interactive: true,
-          });
-          if (seg) {
-            junctionDot.bindTooltip(
-              `<div style="font-size:10px;font-weight:700;color:#071A35;">${seg.segmentName}</div>` +
-              `<div style="font-size:9px;color:#0369a1;font-weight:600;">Roadway Segment &bull; ${seg.distanceMeters} m</div>`,
-              { direction: 'top', offset: [0, -6] }
-            );
-          }
-          highlightGroup.addLayer(junctionDot);
-        }
-
-        // Destination Supply Zone Centroid Hub Marker
-        const destIcon = L.divIcon({
-          className: 'zone-destination-badge',
-          html: `
-            <div style="position: relative; display: flex; align-items: center; justify-content: center;">
-              <div style="position: absolute; width: 28px; height: 28px; border-radius: 50%; background: rgba(2, 132, 199, 0.4); animation: ping 2.5s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
-              <div style="padding: 3px 7px; border-radius: 12px; background: #071A35; border: 2px solid #38bdf8; color: #ffffff; font-size: 9px; font-weight: 700; box-shadow: 0 4px 10px rgba(0,0,0,0.5); white-space: nowrap; display: flex; align-items: center; gap: 4px;">
-                <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#38bdf8;"></span>
-                <span>${pathway.dijkstraRoute.targetZoneId} Centroid</span>
-              </div>
-            </div>
-          `,
-          iconSize: [84, 26],
-          iconAnchor: [42, 13],
-        });
-
-        const destMarker = L.marker(pathway.dijkstraRoute.targetCoordinates, {
-          icon: destIcon,
-          zIndexOffset: 1100,
-        });
-
-        destMarker.bindTooltip(
-          `<div style="font-size:11px;font-weight:700;color:#071A35;">${pathway.dijkstraRoute.targetZoneName}</div>` +
-          `<div style="font-size:10px;color:#0369a1;font-weight:600;">Road Network Destination Centroid (${pathway.dijkstraRoute.targetZoneId})</div>` +
-          `<div style="font-size:9px;color:#475569;">Paved Road Distance: ${pathway.dijkstraRoute.totalDistanceMeters.toLocaleString()} m</div>`,
-          { direction: 'bottom', offset: [0, 12] }
-        );
-        highlightGroup.addLayer(destMarker);
-      } else if (pathway.supplyZone) {
-        // Zone Centroid Indicator Node (no diagonal straight line drawn)
-        const zoneCentroid: [number, number] = [pathway.supplyZone.lat, pathway.supplyZone.lng];
-        const centroidMarker = L.circleMarker(zoneCentroid, {
-          radius: 7,
-          color: '#071A35',
-          weight: 2.5,
-          fillColor: '#38bdf8',
-          fillOpacity: 1,
-          interactive: false,
-        });
-        highlightGroup.addLayer(centroidMarker);
       }
+      highlightGroup.addLayer(addressMarker);
     }
 
     if (!selectedFeature) return;
@@ -990,6 +1019,41 @@ export const GisMap: React.FC<GisMapProps> = ({
         });
         highlightGroup.addLayer(highlightPolygon);
       }
+
+      const pinIcon = L.divIcon({
+        className: 'selected-address-pin',
+        html: `
+          <div style="position: relative; display: flex; align-items: center; justify-content: center;">
+            <div style="position: absolute; width: 34px; height: 34px; border-radius: 50%; background: rgba(2, 132, 199, 0.35); animation: ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
+            <div style="width: 22px; height: 22px; border-radius: 50%; background: #071A35; border: 3px solid #38bdf8; box-shadow: 0 4px 12px rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center;">
+              <div style="width: 7px; height: 7px; border-radius: 50%; background: #38bdf8;"></div>
+            </div>
+          </div>
+        `,
+        iconSize: [34, 34],
+        iconAnchor: [17, 17],
+      });
+
+      const parcelMarker = L.marker(parcel.center, {
+        icon: pinIcon,
+        zIndexOffset: 1200,
+      });
+
+      // Open the location's Google Maps / Info Window popup
+      const popupHtml = createParcelPopupHtml(parcel, accessLevel);
+      parcelMarker.bindPopup(popupHtml, {
+        className: 'watercare-popup',
+        maxWidth: 350,
+      });
+      highlightGroup.addLayer(parcelMarker);
+
+      L.popup({
+        className: 'watercare-popup',
+        maxWidth: 350,
+      })
+        .setLatLng(parcel.center)
+        .setContent(popupHtml)
+        .openOn(mapInstanceRef.current!);
     } else if (selectedFeature.type === 'pipe') {
       const pipe = selectedFeature.data as PipeAsset;
       const highlightLine = L.polyline(pipe.coordinates, {
@@ -1010,18 +1074,31 @@ export const GisMap: React.FC<GisMapProps> = ({
         interactive: false,
       });
       highlightGroup.addLayer(pulseCircle);
-    } else if (selectedFeature.type === 'supply_zone' && selectedFeature.data?.polygon) {
-      const zoneHighlight = L.polygon(selectedFeature.data.polygon, {
-        color: '#38bdf8',
-        weight: 3.5,
-        opacity: 1,
-        fillColor: '#38bdf8',
-        fillOpacity: 0.22,
-        interactive: false,
-      });
-      highlightGroup.addLayer(zoneHighlight);
+    } else if (selectedFeature.type === 'supply_zone' && selectedFeature.data) {
+      const zone = selectedFeature.data;
+      if (zone.polygon) {
+        const zoneHighlight = L.polygon(zone.polygon, {
+          color: '#38bdf8',
+          weight: 3.5,
+          opacity: 1,
+          fillColor: '#38bdf8',
+          fillOpacity: 0.22,
+          interactive: false,
+        });
+        highlightGroup.addLayer(zoneHighlight);
+      }
+      if (zone.lat && zone.lng) {
+        const popupHtml = createSupplyZonePopupHtml(zone, zone.lat, zone.lng, accessLevel);
+        L.popup({
+          className: 'watercare-popup',
+          maxWidth: 350,
+        })
+          .setLatLng([zone.lat, zone.lng])
+          .setContent(popupHtml)
+          .openOn(mapInstanceRef.current!);
+      }
     }
-  }, [selectedFeature, pathway]);
+  }, [selectedFeature, pathway, accessLevel]);
 
   // Focus Zone Bounds Navigation
   useEffect(() => {
@@ -1037,21 +1114,6 @@ export const GisMap: React.FC<GisMapProps> = ({
       console.warn('Error focusing zone bounds:', err);
     }
   }, [focusZoneBounds]);
-
-  // Focus Dijkstra Shortest Route Bounds Navigation
-  useEffect(() => {
-    if (!mapInstanceRef.current || !focusRouteBounds || focusRouteBounds.length === 0) return;
-    try {
-      const bounds = L.latLngBounds(focusRouteBounds);
-      mapInstanceRef.current.fitBounds(bounds, {
-        padding: [60, 60],
-        maxZoom: 17,
-        animate: true,
-      });
-    } catch (err) {
-      console.warn('Error focusing route bounds:', err);
-    }
-  }, [focusRouteBounds]);
 
   return (
     <div className="relative w-full h-full flex flex-col overflow-hidden">
@@ -1213,7 +1275,26 @@ function createParcelPopupHtml(parcel: ParcelFeature, accessLevel: AccessLevel):
             <div><strong>Supply Zone:</strong> ${parcel.engineerData.supplyZoneId}</div>
           </div>
         </div>
-        <div style="font-size: 10px; color: #64748b; font-style: italic;">
+        <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between;">
+          <a 
+            href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(parcel.fullAddress)}"
+            target="_blank" 
+            rel="noopener noreferrer" 
+            style="display: inline-flex; align-items: center; gap: 4px; background: #2563eb; color: #ffffff; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; text-decoration: none;"
+          >
+            <svg style="width: 12px; height: 12px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+            <span>Google Maps</span>
+          </a>
+          <a 
+            href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(parcel.fullAddress)}"
+            target="_blank" 
+            rel="noopener noreferrer" 
+            style="color: #0369a1; font-size: 11px; font-weight: 600; text-decoration: none;"
+          >
+            Directions &rarr;
+          </a>
+        </div>
+        <div style="font-size: 10px; color: #64748b; font-style: italic; margin-top: 6px;">
           Source: ${parcel.dataSource}
         </div>
       </div>
@@ -1222,28 +1303,47 @@ function createParcelPopupHtml(parcel: ParcelFeature, accessLevel: AccessLevel):
 }
 
 // Popup HTML for Drinking Water Supply Zone
-function createSupplyZonePopupHtml(zone: AucklandZoneScheme, lat: number, lng: number, accessLevel: AccessLevel): string {
+function createSupplyZonePopupHtml(zone: AucklandZoneScheme | AucklandSupplyZone, lat: number, lng: number, accessLevel: AccessLevel): string {
   return `
     <div style="font-family: inherit; max-width: 330px;">
       <div style="background: #071A35; color: white; padding: 7px 12px; font-weight: 700; font-size: 12px; display: flex; justify-content: space-between; align-items: center;">
         <span>Drinking Water Supply Zone</span>
-        <span style="font-size: 10px; opacity: 0.9;">${zone.zoneId}</span>
+        <span style="font-size: 10px; opacity: 0.9; font-family: monospace;">${zone.zoneId}</span>
       </div>
       <div style="padding: 10px 12px; font-size: 12px; color: #1e293b;">
         <div style="font-weight: 700; font-size: 13px; color: #071A35; margin-bottom: 2px;">
           ${zone.zoneName}
         </div>
-        <div style="font-size: 11px; color: #475569; margin-bottom: 8px;">
+        <div style="font-size: 11px; color: #475569; margin-bottom: 6px;">
           Supply Scheme: <strong>${zone.supplyName}</strong>
         </div>
-        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 8px; margin-bottom: 8px; font-size: 11px; line-height: 1.5;">
-          <div><strong>Registered Population:</strong> ${zone.popRegist.toLocaleString()}</div>
-          <div><strong>Classification:</strong> ${zone.urbanRural} Standard</div>
-          <div><strong>Source Dam:</strong> ${zone.primaryDam.name}</div>
-          <div><strong>Treatment Plant:</strong> ${zone.treatmentPlant.name}</div>
-          <div><strong>Balancing Reservoir:</strong> ${zone.reservoir.name}</div>
+        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px; padding: 5px 8px; margin-bottom: 8px; font-size: 10px; color: #166534; font-weight: 600; display: flex; items-center; justify-content: space-between;">
+          <span>Statutory Status:</span>
+          <span>${zone.complianceStatus || 'Rule Compliant (Grade A1)'}</span>
         </div>
-        <div style="font-size: 10px; color: #64748b;">
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 8px; margin-bottom: 8px; font-size: 11px; line-height: 1.5;">
+          <div><strong>Registered Population:</strong> ${(zone.popRegist ?? 0).toLocaleString()}</div>
+          <div><strong>Classification:</strong> ${zone.urbanRural || 'Urban'} Standard</div>
+          ${zone.popMaori ? `<div><strong>Māori Population:</strong> ${(zone.popMaori ?? 0).toLocaleString()}</div>` : ''}
+          ${zone.primaryDam?.name ? `<div><strong>Source Dam:</strong> ${zone.primaryDam.name}</div>` : ''}
+          ${zone.treatmentPlant?.name ? `<div><strong>Treatment Plant:</strong> ${zone.treatmentPlant.name}</div>` : ''}
+          ${zone.reservoir?.name ? `<div><strong>Balancing Reservoir:</strong> ${zone.reservoir.name}</div>` : ''}
+        </div>
+        <div style="font-size: 10px; color: #0284c7; font-weight: 600; margin-bottom: 4px;">
+          &rarr; Select area to inspect water-testing records in drawer
+        </div>
+        <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between;">
+          <a 
+            href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(zone.zoneName + ', Auckland, New Zealand')}"
+            target="_blank" 
+            rel="noopener noreferrer" 
+            style="display: inline-flex; align-items: center; gap: 4px; background: #2563eb; color: #ffffff; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; text-decoration: none;"
+          >
+            <svg style="width: 12px; height: 12px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+            <span>Google Maps</span>
+          </a>
+        </div>
+        <div style="font-size: 10px; color: #64748b; margin-top: 6px;">
           Source: ${zone.dataSource}
         </div>
       </div>

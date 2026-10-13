@@ -3,7 +3,6 @@ import { Header } from './components/Header';
 import { GisMap } from './components/GisMap';
 import { InspectionDrawer } from './components/InspectionDrawer';
 import { LayerPanel } from './components/LayerPanel';
-import { PathwayPanel } from './components/PathwayPanel';
 import { CitizenComplaintModal } from './components/CitizenComplaintModal';
 import { DataRequestModal } from './components/DataRequestModal';
 import { DocumentationModal } from './components/DocumentationModal';
@@ -107,24 +106,6 @@ export default function App() {
     }));
   };
 
-  const resolvePathwayForParcel = useCallback(async (parcel: ParcelFeature) => {
-    setIsResolvingPathway(true);
-    setFocusZoneBounds(null);
-    setFocusRouteBounds(null);
-    try {
-      const result = await resolveWaterSupplyApi({
-        address: parcel.fullAddress,
-        coordinates: parcel.center,
-        address_id: parcel.id,
-      });
-      setPathwayState(result);
-    } catch (err) {
-      console.error('Failed to resolve water supply pathway:', err);
-    } finally {
-      setIsResolvingPathway(false);
-    }
-  }, []);
-
   const handleSearchSelectParcel = useCallback((parcel: ParcelFeature) => {
     setSelectedFeature({
       type: 'parcel',
@@ -137,24 +118,13 @@ export default function App() {
       center: parcel.center,
       zoom: 18,
     });
-    resolvePathwayForParcel(parcel);
-  }, [resolvePathwayForParcel]);
+  }, []);
 
   const handleSelectFeature = useCallback((selection: ActiveSelection | null) => {
     setSelectedFeature(selection);
-    if (selection?.type === 'parcel') {
-      resolvePathwayForParcel(selection.data);
-    } else if (selection?.type === 'supply_zone') {
-      setPathwayState(null);
-      setFocusZoneBounds(null);
-      setFocusRouteBounds(null);
-    }
-  }, [resolvePathwayForParcel]);
+  }, []);
 
   const handleSearchSelectZone = useCallback((zone: AucklandZoneScheme) => {
-    setPathwayState(null);
-    setFocusZoneBounds(null);
-    setFocusRouteBounds(null);
     setSelectedFeature({
       type: 'supply_zone',
       data: zone,
@@ -164,39 +134,6 @@ export default function App() {
       zoom: 15,
     });
   }, []);
-
-  const handleFocusZone = useCallback((zone: PathwayResolvedZone) => {
-    if (zone.polygon && zone.polygon.length > 0) {
-      setFocusZoneBounds([...zone.polygon]);
-    } else {
-      setFlyToLocation({
-        center: [zone.lat, zone.lng],
-        zoom: 14,
-      });
-    }
-  }, []);
-
-  const handleFocusRoute = useCallback((coords: [number, number][]) => {
-    if (coords && coords.length > 0) {
-      setFocusRouteBounds([...coords]);
-    }
-  }, []);
-
-  const handleFocusAddress = useCallback((coords: [number, number]) => {
-    setFlyToLocation({
-      center: coords,
-      zoom: 18,
-    });
-  }, []);
-
-  const handleClearPathway = useCallback(() => {
-    setPathwayState(null);
-    setFocusZoneBounds(null);
-    setFocusRouteBounds(null);
-    if (selectedFeature?.type === 'parcel') {
-      setSelectedFeature(null);
-    }
-  }, [selectedFeature]);
 
   const handleLocateMe = useCallback(() => {
     if (!navigator.geolocation) {
@@ -270,20 +207,9 @@ export default function App() {
           customGeoJsonData={customGeoJsonData}
           onToggleLayerPanel={() => setIsLayerPanelOpen(prev => !prev)}
           isLayerPanelOpen={isLayerPanelOpen}
-          pathway={pathwayState}
+          pathway={null}
           focusZoneBounds={focusZoneBounds}
-          focusRouteBounds={focusRouteBounds}
-        />
-
-        {/* Address-to-Water-Supply Zone Pathway Information Panel */}
-        <PathwayPanel
-          pathway={pathwayState}
-          isLoading={isResolvingPathway}
-          onFocusZone={handleFocusZone}
-          onFocusAddress={handleFocusAddress}
-          onFocusRoute={handleFocusRoute}
-          onReportIncident={handleOpenComplaintForAddress}
-          onClear={handleClearPathway}
+          focusRouteBounds={null}
         />
 
         {/* Map Layers & Basemap Control Panel */}
@@ -306,6 +232,7 @@ export default function App() {
             setFlyToLocation({ center: coords, zoom: 19 });
           }}
           onReportIncident={handleOpenComplaintForAddress}
+          complaintsList={complaintsList}
         />
 
         {/* Citizen Water Contamination & Service Complaint Modal */}

@@ -10,3 +10,5 @@ coverage/
 __pycache__/
 *.py[cod]
 backend/app/db/data/water_services.db
+.venv/
+venv/

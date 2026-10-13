@@ -28,6 +28,31 @@ export interface AucklandSupplyZone {
   popHighDe: number;
   popMaori: number;
   dataSource: string;
+  polygon?: [number, number][];
+  shapeLength?: number;
+  shapeArea?: number;
+  complianceStatus?: string;
+  supplierName?: string;
+  primaryDam?: {
+    name: string;
+    catchment: string;
+    capacityML: number;
+    distanceKm: number;
+  };
+  treatmentPlant?: {
+    name: string;
+    process: string;
+    waterQualityGrade: string;
+  };
+  reservoir?: {
+    name: string;
+    capacityM3: number;
+    headLevelM: number;
+  };
+  streetMainTemplate?: {
+    nomDiaMm: number;
+    material: string;
+  };
 }
 
 export interface PipeAsset {

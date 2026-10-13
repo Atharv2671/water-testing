@@ -4,20 +4,18 @@ import {
   MapPin, 
   Database,
   Navigation, 
-  BookOpen, 
   LogOut, 
   LogIn, 
   ShieldCheck,
   Building2,
   X,
   AlertTriangle,
-  Server
 } from 'lucide-react';
 import { AuthUser, ParcelFeature } from '../types/gis';
 import { VERIFIED_PARCELS } from '../data/nzData';
 import { AUCKLAND_ZONE_SCHEMES, AucklandZoneScheme } from '../utils/waterLineageEngine';
 import { TaumataArowaiLogo } from './TaumataArowaiLogo';
-import { searchAddressesApi, checkBackendHealth } from '../services/apiClient';
+import { searchAddressesApi } from '../services/apiClient';
 
 interface HeaderProps {
   currentUser: AuthUser | null;
@@ -29,7 +27,7 @@ interface HeaderProps {
   isLocating: boolean;
   onOpenComplaintModal: () => void;
   onOpenDataRequestModal: () => void;
-  onOpenDocumentation: () => void;
+  onOpenDocumentation?: () => void;
   onProfileDashboardOpen?: () => void;
   onOpenProfileDashboard: () => void;
 }
@@ -44,22 +42,11 @@ export const Header: React.FC<HeaderProps> = ({
   isLocating,
   onOpenComplaintModal,
   onOpenDataRequestModal,
-  onOpenDocumentation,
   onOpenProfileDashboard,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
-  const [backendOnline, setBackendOnline] = useState<boolean>(false);
   const [apiParcels, setApiParcels] = useState<ParcelFeature[]>([]);
-
-  // Periodic Backend Health Check
-  useEffect(() => {
-    checkBackendHealth().then(res => setBackendOnline(res.online));
-    const interval = setInterval(() => {
-      checkBackendHealth().then(res => setBackendOnline(res.online));
-    }, 12000);
-    return () => clearInterval(interval);
-  }, []);
 
   // Debounced Live Backend Address Search
   useEffect(() => {
@@ -223,7 +210,7 @@ export const Header: React.FC<HeaderProps> = ({
                       <span className="text-[10px] font-mono text-slate-500">{zone.zoneId}</span>
                     </div>
                     <div className="text-[10px] text-slate-600 flex items-center gap-2 mt-0.5">
-                      <span>Registered Population: {zone.popRegist.toLocaleString()}</span>
+                      <span>Registered Population: {(zone.popRegist ?? 0).toLocaleString()}</span>
                       <span>&bull;</span>
                       <span>Scheme: {zone.supplyName}</span>
                     </div>
@@ -236,17 +223,6 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right: Functional Navigation & Authentication */}
         <div className="flex items-center gap-2 shrink-0">
-          
-          {/* Backend Connection Status Badge */}
-          <div 
-            title={backendOnline ? "Backend API connected (FastAPI on Port 8000)" : "Backend offline — using standalone local datasets"}
-            className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium border border-white/15 bg-white/5 transition-colors cursor-default"
-          >
-            <span className={`w-2 h-2 rounded-full ${backendOnline ? 'bg-emerald-400 animate-pulse shadow-[0_0_8px_#34d399]' : 'bg-slate-400'}`} />
-            <span className="text-slate-300">
-              {backendOnline ? 'API Connected' : 'Standalone Mode'}
-            </span>
-          </div>
 
           {/* Citizen Incident & Contamination Report Button */}
           <button
@@ -271,17 +247,6 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden sm:inline">Upload Data</span>
             </button>
           )}
-
-          {/* Docs & Workflow Guide Button */}
-          <button
-            type="button"
-            onClick={onOpenDocumentation}
-            title="Technical Documentation, Database Schema & Architecture"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold bg-white/10 hover:bg-white/15 text-white border border-white/20 transition-colors"
-          >
-            <BookOpen className="w-3.5 h-3.5 text-slate-300" />
-            <span className="hidden md:inline">Documentation</span>
-          </button>
 
           {/* User Profile & Authentication State */}
           <div className="flex items-center pl-1 sm:pl-2 border-l border-white/20">
