@@ -21,6 +21,30 @@ class WaterSupplyResolveRequest(BaseModel):
     coordinates: Optional[List[float]] = Field(None, description="[latitude, longitude] in WGS84")
     address_id: Optional[str] = Field(None, description="Optional verified parcel ID")
 
+class DijkstraSegmentSchema(BaseModel):
+    fromCoords: List[float]  # [lat, lng]
+    toCoords: List[float]    # [lat, lng]
+    distanceMeters: float
+    segmentName: str
+    pipeType: Optional[str] = None
+    nominalDiameterMm: Optional[int] = None
+    compkey: Optional[int] = None
+
+class DijkstraRouteSchema(BaseModel):
+    sourceAddress: str
+    sourceCoordinates: List[float]  # [lat, lng]
+    targetZoneId: str
+    targetZoneName: str
+    targetCoordinates: List[float]  # [lat, lng]
+    totalDistanceMeters: float
+    totalDistanceKm: float
+    pathCoordinates: List[List[float]]
+    segments: List[DijkstraSegmentSchema]
+    nodeCount: int
+    computationTimeMs: float
+    algorithm: str = "Dijkstra Shortest Path"
+    googleMapsDirectionsUrl: str
+
 class WaterSupplyResolutionResponse(BaseModel):
     status: ResolutionStatus
     queriedAddress: str
@@ -34,3 +58,5 @@ class WaterSupplyResolutionResponse(BaseModel):
     distanceToMainMeters: Optional[float] = None
     warnings: List[str] = []
     confidenceScore: float = 1.0
+    dijkstraRoute: Optional[DijkstraRouteSchema] = None
+

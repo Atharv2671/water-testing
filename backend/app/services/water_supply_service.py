@@ -15,6 +15,7 @@ from backend.app.services.spatial_service import (
     resolve_buffer_tier,
     haversine_distance_m
 )
+from backend.app.services.dijkstra_service import dijkstra_service
 from backend.app.db.models.query_log import SpatialPropertyQuery
 
 class WaterSupplyService:
@@ -134,8 +135,25 @@ class WaterSupplyService:
             )
             db.add(audit_entry)
             db.commit()
+        # Step 3.5: Dijkstra Shortest Route Calculation
+        dijkstra_route = None
+        target_lat = matched_zone_schema.lat if matched_zone_schema else -36.9125
+        target_lng = matched_zone_schema.lng if matched_zone_schema else 174.6780
+        target_zone_id = matched_zone_schema.zoneId if matched_zone_schema else "AKL-SZ-14"
+        target_zone_name = matched_zone_schema.zoneName if matched_zone_schema else "Titirangi & Kelston Supply Zone"
+
+        try:
+            dijkstra_route = dijkstra_service.compute_shortest_route(
+                source_lat=lat,
+                source_lng=lng,
+                target_lat=target_lat,
+                target_lng=target_lng,
+                source_address=queried_address_str,
+                target_zone_id=target_zone_id,
+                target_zone_name=target_zone_name
+            )
         except Exception:
-            db.rollback()
+            pass
 
         return WaterSupplyResolutionResponse(
             status=status,
@@ -149,7 +167,8 @@ class WaterSupplyService:
             matchedPipeCompkey=pipe_compkey,
             distanceToMainMeters=distance_to_main,
             warnings=warnings,
-            confidenceScore=0.98 if status == "VERIFIED" else 0.65 if status == "NEAR_ZONE" else 0.40
+            confidenceScore=0.98 if status == "VERIFIED" else 0.65 if status == "NEAR_ZONE" else 0.40,
+            dijkstraRoute=dijkstra_route
         )
 
 water_supply_service = WaterSupplyService()

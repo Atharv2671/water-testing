@@ -9,7 +9,8 @@ import {
   PipeAsset, 
   FittingAsset,
   ActiveSelection,
-  AucklandSupplyZone
+  AucklandSupplyZone,
+  PathwayResolutionResult
 } from '../types/gis';
 import { 
   VERIFIED_PARCELS, 
@@ -38,6 +39,9 @@ interface GisMapProps {
   customGeoJsonData?: any | null;
   onToggleLayerPanel?: () => void;
   isLayerPanelOpen?: boolean;
+  pathway?: PathwayResolutionResult | null;
+  focusZoneBounds?: [number, number][] | null;
+  focusRouteBounds?: [number, number][] | null;
 }
 
 interface WaterTileIndex {
@@ -55,6 +59,9 @@ export const GisMap: React.FC<GisMapProps> = ({
   customGeoJsonData,
   onToggleLayerPanel,
   isLayerPanelOpen = false,
+  pathway = null,
+  focusZoneBounds = null,
+  focusRouteBounds = null,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -275,29 +282,40 @@ export const GisMap: React.FC<GisMapProps> = ({
 
       // 2. Official Spatial Supply Zones (AklDizzy)
       if (layerVisibility.supplyZones && zone.polygon) {
+        const isAssignedZone = pathway?.supplyZone?.zoneId === zone.zoneId;
+        const hasActivePathway = !!pathway?.supplyZone;
+
         const zonePoly = L.polygon(zone.polygon, {
-          color: '#071A35',
-          weight: 2,
-          opacity: 0.8,
-          fillColor: '#0284c7',
-          fillOpacity: 0.12,
-          dashArray: '4, 4',
+          color: isAssignedZone ? '#0284c7' : (hasActivePathway ? '#64748b' : '#071A35'),
+          weight: isAssignedZone ? 3.5 : (hasActivePathway ? 1 : 2),
+          opacity: isAssignedZone ? 1 : (hasActivePathway ? 0.35 : 0.8),
+          fillColor: isAssignedZone ? '#38bdf8' : (hasActivePathway ? '#94a3b8' : '#0284c7'),
+          fillOpacity: isAssignedZone ? 0.28 : (hasActivePathway ? 0.03 : 0.12),
+          dashArray: isAssignedZone ? undefined : '4, 4',
         });
 
+        if (isAssignedZone) {
+          zonePoly.bringToFront();
+        }
+
         zonePoly.on('mouseover', () => {
-          zonePoly.setStyle({
-            weight: 3,
-            fillOpacity: 0.22,
-            color: '#0284c7',
-          });
+          if (!isAssignedZone) {
+            zonePoly.setStyle({
+              weight: 2.5,
+              fillOpacity: hasActivePathway ? 0.14 : 0.22,
+              color: '#0284c7',
+            });
+          }
         });
 
         zonePoly.on('mouseout', () => {
-          zonePoly.setStyle({
-            weight: 2,
-            fillOpacity: 0.12,
-            color: '#071A35',
-          });
+          if (!isAssignedZone) {
+            zonePoly.setStyle({
+              weight: hasActivePathway ? 1 : 2,
+              fillOpacity: hasActivePathway ? 0.03 : 0.12,
+              color: hasActivePathway ? '#64748b' : '#071A35',
+            });
+          }
         });
 
         zonePoly.on('click', (e: L.LeafletMouseEvent) => {
@@ -321,10 +339,11 @@ export const GisMap: React.FC<GisMapProps> = ({
 
         // Zone label badge at centroid
         if (zoomLevel >= 12) {
+          const badgeBg = isAssignedZone ? '#0284c7' : (hasActivePathway ? 'rgba(7, 26, 53, 0.6)' : 'rgba(7, 26, 53, 0.9)');
           const zoneBadge = L.divIcon({
             className: 'zone-label-badge',
             html: `
-              <div style="background: rgba(7, 26, 53, 0.9); color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 700; white-space: nowrap; border: 1px solid #38bdf8; box-shadow: 0 1px 4px rgba(0,0,0,0.3); pointer-events: none; text-align: center;">
+              <div style="background: ${badgeBg}; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 700; white-space: nowrap; border: 1px solid ${isAssignedZone ? '#38bdf8' : '#38bdf8'}; box-shadow: 0 1px 4px rgba(0,0,0,0.3); pointer-events: none; text-align: center;">
                 <div>${zone.zoneName}</div>
                 <div style="font-size: 9px; color: #7dd3fc; font-weight: 500;">Pop: ${zone.popRegist.toLocaleString()}</div>
               </div>
@@ -337,7 +356,7 @@ export const GisMap: React.FC<GisMapProps> = ({
         }
       }
     });
-  }, [layerVisibility.supplyZones, layerVisibility.supplyBuffers, zoomLevel, accessLevel]);
+  }, [layerVisibility.supplyZones, layerVisibility.supplyBuffers, zoomLevel, accessLevel, pathway]);
 
   // Render Parcels & Residential Zones
   useEffect(() => {
@@ -816,24 +835,161 @@ export const GisMap: React.FC<GisMapProps> = ({
     }
   }, [customGeoJsonData]);
 
-  // Highlight Active Selection
+  // Highlight Active Selection & Address-to-Supply-Zone Pathway
   useEffect(() => {
     const highlightGroup = highlightLayerGroupRef.current;
     highlightGroup.clearLayers();
 
-    if (!mapInstanceRef.current || !selectedFeature) return;
+    if (!mapInstanceRef.current) return;
+
+    // 1. If pathway is active, render selected address marker & assignment corridor indicator
+    if (pathway) {
+      // 1.1 Distinct Selected Address Pin Marker with Pulsing Halo
+      const addressPinIcon = L.divIcon({
+        className: 'selected-address-pin',
+        html: `
+          <div style="position: relative; display: flex; align-items: center; justify-content: center;">
+            <div style="position: absolute; width: 34px; height: 34px; border-radius: 50%; background: rgba(2, 132, 199, 0.35); animation: ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
+            <div style="width: 22px; height: 22px; border-radius: 50%; background: #071A35; border: 3px solid #38bdf8; box-shadow: 0 4px 12px rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center;">
+              <div style="width: 7px; height: 7px; border-radius: 50%; background: #38bdf8;"></div>
+            </div>
+          </div>
+        `,
+        iconSize: [34, 34],
+        iconAnchor: [17, 17],
+      });
+
+      const addressMarker = L.marker(pathway.coordinates, {
+        icon: addressPinIcon,
+        zIndexOffset: 1200,
+      });
+
+      addressMarker.bindTooltip(
+        `<div style="font-size:11px;font-weight:700;color:#071A35;">${pathway.queriedAddress}</div>` +
+        `<div style="font-size:10px;color:#0284c7;font-weight:600;">Selected Query Address</div>`,
+        {
+          direction: 'top',
+          offset: [0, -18],
+          className: 'watercare-tooltip',
+        }
+      );
+      highlightGroup.addLayer(addressMarker);
+
+      // 1.2 Core Road Network Pathfinding Route to Supply Zone (Walkable / Vehicle Road)
+      if (pathway.dijkstraRoute && pathway.dijkstraRoute.pathCoordinates.length > 1) {
+        // High-contrast road casing (crisp white outline for satellite basemap readability)
+        const roadCasing = L.polyline(pathway.dijkstraRoute.pathCoordinates, {
+          color: '#ffffff',
+          weight: 7.5,
+          opacity: 0.85,
+          lineCap: 'round',
+          lineJoin: 'round',
+          interactive: false,
+        });
+        highlightGroup.addLayer(roadCasing);
+
+        // Core road route polyline strictly along vehicle/walkable road centerlines
+        const roadLine = L.polyline(pathway.dijkstraRoute.pathCoordinates, {
+          color: '#0284c7',
+          weight: 4.5,
+          opacity: 0.95,
+          lineCap: 'round',
+          lineJoin: 'round',
+          interactive: true,
+        });
+
+        roadLine.bindTooltip(
+          `<div style="font-size:11px;font-weight:700;color:#071A35;">Road Network Route (Strict Walkable / Vehicle Corridors)</div>` +
+          `<div style="font-size:10px;color:#0369a1;font-weight:700;margin-top:1px;">Distance: ${pathway.dijkstraRoute.totalDistanceMeters.toLocaleString()} m (${pathway.dijkstraRoute.totalDistanceKm} km)</div>` +
+          `<div style="font-size:9px;color:#334155;margin-top:2px;">Corridor: ${pathway.dijkstraRoute.roadNames?.join(' &rarr; ') || 'Paved Street Corridors'}</div>` +
+          `<div style="font-size:9px;color:#0284c7;font-style:italic;margin-top:2px;">A* Road Algorithm &bull; Zero Forest Crossing</div>`,
+          {
+            sticky: true,
+            className: 'watercare-tooltip',
+          }
+        );
+        highlightGroup.addLayer(roadLine);
+
+        // Street Turn & Intersection Waypoint Markers
+        for (let i = 1; i < pathway.dijkstraRoute.pathCoordinates.length - 1; i++) {
+          const pt = pathway.dijkstraRoute.pathCoordinates[i];
+          const seg = pathway.dijkstraRoute.segments[i] || pathway.dijkstraRoute.segments[i - 1];
+          const junctionDot = L.circleMarker(pt, {
+            radius: 4,
+            color: '#0369a1',
+            weight: 2,
+            fillColor: '#ffffff',
+            fillOpacity: 1,
+            interactive: true,
+          });
+          if (seg) {
+            junctionDot.bindTooltip(
+              `<div style="font-size:10px;font-weight:700;color:#071A35;">${seg.segmentName}</div>` +
+              `<div style="font-size:9px;color:#0369a1;font-weight:600;">Roadway Segment &bull; ${seg.distanceMeters} m</div>`,
+              { direction: 'top', offset: [0, -6] }
+            );
+          }
+          highlightGroup.addLayer(junctionDot);
+        }
+
+        // Destination Supply Zone Centroid Hub Marker
+        const destIcon = L.divIcon({
+          className: 'zone-destination-badge',
+          html: `
+            <div style="position: relative; display: flex; align-items: center; justify-content: center;">
+              <div style="position: absolute; width: 28px; height: 28px; border-radius: 50%; background: rgba(2, 132, 199, 0.4); animation: ping 2.5s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
+              <div style="padding: 3px 7px; border-radius: 12px; background: #071A35; border: 2px solid #38bdf8; color: #ffffff; font-size: 9px; font-weight: 700; box-shadow: 0 4px 10px rgba(0,0,0,0.5); white-space: nowrap; display: flex; align-items: center; gap: 4px;">
+                <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#38bdf8;"></span>
+                <span>${pathway.dijkstraRoute.targetZoneId} Centroid</span>
+              </div>
+            </div>
+          `,
+          iconSize: [84, 26],
+          iconAnchor: [42, 13],
+        });
+
+        const destMarker = L.marker(pathway.dijkstraRoute.targetCoordinates, {
+          icon: destIcon,
+          zIndexOffset: 1100,
+        });
+
+        destMarker.bindTooltip(
+          `<div style="font-size:11px;font-weight:700;color:#071A35;">${pathway.dijkstraRoute.targetZoneName}</div>` +
+          `<div style="font-size:10px;color:#0369a1;font-weight:600;">Road Network Destination Centroid (${pathway.dijkstraRoute.targetZoneId})</div>` +
+          `<div style="font-size:9px;color:#475569;">Paved Road Distance: ${pathway.dijkstraRoute.totalDistanceMeters.toLocaleString()} m</div>`,
+          { direction: 'bottom', offset: [0, 12] }
+        );
+        highlightGroup.addLayer(destMarker);
+      } else if (pathway.supplyZone) {
+        // Zone Centroid Indicator Node (no diagonal straight line drawn)
+        const zoneCentroid: [number, number] = [pathway.supplyZone.lat, pathway.supplyZone.lng];
+        const centroidMarker = L.circleMarker(zoneCentroid, {
+          radius: 7,
+          color: '#071A35',
+          weight: 2.5,
+          fillColor: '#38bdf8',
+          fillOpacity: 1,
+          interactive: false,
+        });
+        highlightGroup.addLayer(centroidMarker);
+      }
+    }
+
+    if (!selectedFeature) return;
 
     if (selectedFeature.type === 'parcel') {
       const parcel = selectedFeature.data as ParcelFeature;
-      const highlightPolygon = L.polygon(parcel.coordinates, {
-        color: '#0284c7',
-        weight: 3.5,
-        opacity: 1,
-        fillColor: '#0284c7',
-        fillOpacity: 0.15,
-        interactive: false,
-      });
-      highlightGroup.addLayer(highlightPolygon);
+      if (parcel.coordinates && parcel.coordinates.length > 0) {
+        const highlightPolygon = L.polygon(parcel.coordinates, {
+          color: '#0284c7',
+          weight: 3.5,
+          opacity: 1,
+          fillColor: '#0284c7',
+          fillOpacity: 0.15,
+          interactive: false,
+        });
+        highlightGroup.addLayer(highlightPolygon);
+      }
     } else if (selectedFeature.type === 'pipe') {
       const pipe = selectedFeature.data as PipeAsset;
       const highlightLine = L.polyline(pipe.coordinates, {
@@ -865,7 +1021,37 @@ export const GisMap: React.FC<GisMapProps> = ({
       });
       highlightGroup.addLayer(zoneHighlight);
     }
-  }, [selectedFeature]);
+  }, [selectedFeature, pathway]);
+
+  // Focus Zone Bounds Navigation
+  useEffect(() => {
+    if (!mapInstanceRef.current || !focusZoneBounds || focusZoneBounds.length === 0) return;
+    try {
+      const bounds = L.polygon(focusZoneBounds).getBounds();
+      mapInstanceRef.current.fitBounds(bounds, {
+        padding: [60, 60],
+        maxZoom: 15,
+        animate: true,
+      });
+    } catch (err) {
+      console.warn('Error focusing zone bounds:', err);
+    }
+  }, [focusZoneBounds]);
+
+  // Focus Dijkstra Shortest Route Bounds Navigation
+  useEffect(() => {
+    if (!mapInstanceRef.current || !focusRouteBounds || focusRouteBounds.length === 0) return;
+    try {
+      const bounds = L.latLngBounds(focusRouteBounds);
+      mapInstanceRef.current.fitBounds(bounds, {
+        padding: [60, 60],
+        maxZoom: 17,
+        animate: true,
+      });
+    } catch (err) {
+      console.warn('Error focusing route bounds:', err);
+    }
+  }, [focusRouteBounds]);
 
   return (
     <div className="relative w-full h-full flex flex-col overflow-hidden">

@@ -214,3 +214,97 @@ export interface ActiveSelection {
   relatedAssets?: (PipeAsset | FittingAsset)[];
   unmapped?: boolean;
 }
+
+export type PathwayResolutionStatus = 
+  | 'VERIFIED'
+  | 'AMBIGUOUS'
+  | 'NEAR_ZONE'
+  | 'UNMAPPED_OUTSIDE_RETICULATION'
+  | 'REVIEW_REQUIRED';
+
+export interface PathwayResolvedZone {
+  zoneId: string;
+  zoneName: string;
+  supplyId: string;
+  supplyName: string;
+  popRegist: number;
+  popMaori?: number;
+  urbanRural?: string;
+  lat: number;
+  lng: number;
+  polygon?: [number, number][];
+  dataSource?: string;
+}
+
+export interface PathwayResolvedScheme {
+  supplyId: string;
+  supplyName: string;
+  supplierName: string;
+  region?: string;
+  complianceStatus?: string;
+  sourceWaterType?: string;
+  registeredPopulation?: number;
+  primaryTreatmentPlant?: string;
+  waterQualityGrade?: string;
+}
+
+export interface DijkstraSegment {
+  from: [number, number];
+  to: [number, number];
+  distanceMeters: number;
+  segmentName: string;
+  pipeType?: string;
+  material?: string;
+  nomDiaMm?: number;
+  compkey?: number;
+}
+
+export type TravelMode = 'vehicle' | 'walking';
+
+export interface DijkstraRouteResult {
+  sourceAddress: string;
+  sourceCoordinates: [number, number];
+  targetZoneId: string;
+  targetZoneName: string;
+  targetCoordinates: [number, number];
+  totalDistanceMeters: number;
+  totalDistanceKm: number;
+  pathCoordinates: [number, number][];
+  segments: DijkstraSegment[];
+  nodeCount: number;
+  computationTimeMs: number;
+  algorithm: string;
+  provenance: string;
+  googleMapsDirectionsUrl: string;
+  travelMode?: TravelMode;
+  roadNames?: string[];
+}
+
+export interface PathwayResolutionResult {
+  status: PathwayResolutionStatus;
+  queriedAddress: string;
+  addressId?: string;
+  lotNumber?: string;
+  dpNumber?: string;
+  coordinates: [number, number]; // [lat, lng]
+  nztm2000?: {
+    easting: number;
+    northing: number;
+  };
+  supplyZone?: PathwayResolvedZone | null;
+  supplyScheme?: PathwayResolvedScheme | null;
+  bufferTier?: {
+    tierName: string;
+    distanceMeters: number;
+    description?: string;
+  } | null;
+  lineage?: any | null;
+  matchedPipeCompkey?: number | null;
+  distanceToMainMeters?: number | null;
+  warnings: string[];
+  confidenceScore: number;
+  dataProvenance: string;
+  dijkstraRoute?: DijkstraRouteResult | null;
+}
+
+
